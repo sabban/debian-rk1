@@ -50,7 +50,7 @@ if  ! command -v realpath ; then
     exit 1
 fi
 
-dd if=/dev/zero of="${DISK_IMAGE}" bs=1M count=1800
+dd if=/dev/zero of="${DISK_IMAGE}" bs=1M count=2000
 
 parted --script "${DISK_IMAGE}" \
     mklabel gpt \
@@ -145,14 +145,9 @@ mount --bind /dev/pts "${MOUNT_POINT}/dev/pts"
 mount  /proc "${MOUNT_POINT}/proc" -t proc
 mount --bind /sys "${MOUNT_POINT}/sys"
 
+# install packages in chroot
 cat << EOF | chroot "${MOUNT_POINT}" /bin/bash
-apt-get install -y flash-kernel openssh-server cloud-init lvm2 sudo net-tools locales-all
-EOF
-
-cat << EOF | chroot "${MOUNT_POINT}" /bin/bash
-useradd -m -s /bin/bash admin
-echo "admin:admin" | chpasswd
-usermod -aG sudo admin
+apt-get install -y flash-kernel openssh-server cloud-init lvm2 sudo net-tools locales
 EOF
 
 # add user and its ssh key
@@ -161,6 +156,7 @@ useradd -m -s /bin/bash "${USER}"
 usermod -aG sudo "${USER}"
 mkdir -p /home/"${USER}"/.ssh
 echo "${SSH_PUB_KEY}" > /home/"${USER}"/.ssh/authorized_keys
+echo "${USER}" ALL=(ALL) NOPASSWD:ALL > /etc/sudoers.d/90-"${USER}"
 EOF
 
 # configure boot
@@ -179,8 +175,6 @@ EOF
 cat <<EOF >> "${MOUNT_POINT}/etc/flash-kernel/machine"
 Turing Machines RK1
 EOF
-
-ROOT_UUID=$(blkid -s UUID -o value /dev/mapper/rk1-root)
 
 cat <<EOF | chroot "${MOUNT_POINT}" /bin/bash
 cp /usr/lib/linux-image-5.10.160-rockchip/rockchip/rk3588-turing-rk1.dtb /boot/boot/
@@ -256,15 +250,22 @@ mkimage -A arm64 -O linux -T script -C none -n "Boot Script" -d /boot/boot/boot.
 FK_IGNORE_EFI=yes update-initramfs  -c -k all
 EOF
 
+ROOT_UUID=$(blkid -s UUID -o value /dev/mapper/rk1-root)
+TMP_UUID=$(blkid -s UUID -o value /dev/mapper/rk1-tmp)
+VAR_UUID=$(blkid -s UUID -o value /dev/mapper/rk1-var)
+BOOT_UUID=$(blkid -s UUID -o value "${BOOT}")
+
+
 cat << EOF >> "${MOUNT_POINT}/etc/fstab"
-LABEL=root / ext4 errors=remount-ro 0 1
-LABEL=boot /boot/boot vfat defaults 0 2
-LABEL=tmp /tmp ext4 defaults 0 2
-LABEL=var /var ext4 defaults 0 2
+UUID="${ROOT_UUID}" / ext4 errors=remount-ro 0 1
+UUID="${BOOT_UUID}" /boot/boot vfat defaults 0 2
+UUID="${TMP_UUID}" /tmp ext4 defaults 0 2
+UUID="${VAR_UUID}" /var ext4 defaults 0 2
 #LABEL=home /home ext4 defaults 0 2
 EOF
 
 cp nvme-install.sh "${MOUNT_POINT}/usr/bin/nvme-install.sh"
+chmod u+x "${MOUNT_POINT}/usr/bin/nvme-install.sh"
 
 umount "${MOUNT_POINT}/proc"
 umount "${MOUNT_POINT}/sys"
