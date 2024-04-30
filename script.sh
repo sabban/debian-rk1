@@ -22,8 +22,8 @@ if [ -z "${MOUNT_POINT}" ]; then
     fi
 fi
 
+# Create rootfs
 if [ ! -d "${CHROOT_DIR}" ]; then
-
     if uname -m | grep -q arm64; then
         debootstrap --arch arm64 "${RELEASE}" "${CHROOT_DIR}" http://ftp.debian.org/debian/
     else
@@ -42,6 +42,7 @@ else
     echo "Rootfs already exists, skipping its creation"
 fi
 
+# Create disk image
 DISK_IMAGE="./disk-rk1.img"
 
 if  ! command -v realpath ; then
@@ -49,7 +50,7 @@ if  ! command -v realpath ; then
     exit 1
 fi
 
-dd if=/dev/zero of="${DISK_IMAGE}" bs=1M count=1700
+dd if=/dev/zero of="${DISK_IMAGE}" bs=1M count=1800
 
 parted --script "${DISK_IMAGE}" \
     mklabel gpt \
@@ -115,6 +116,7 @@ cat << EOF | chroot "${MOUNT_POINT}" /bin/bash
 passwd -u root
 EOF
 
+# install u-boot blob
 if [ -f "${MOUNT_POINT}/usr/lib/u-boot/u-boot-rockchip.bin" ]; then
     dd if="${MOUNT_POINT}/usr/lib/u-boot/u-boot-rockchip.bin" of="${DEVICE}" seek=1 bs=32k conv=fsync
 else
@@ -138,40 +140,30 @@ if [ -z "${BOOT_ARGS}" ]; then
     BOOT_ARGS=""
 fi
 
-touch "${MOUNT_POINT}/etc/kernel/cmdline"
-mkdir -p "${MOUNT_POINT}/usr/share/u-boot-menu/conf.d/"
-# cat << EOF >> "${MOUNT_POINT}/usr/share/u-boot-menu/conf.d/ubuntu.conf"
-# U_BOOT_PROMPT="1"
-# U_BOOT_PARAMETERS="\$(cat /etc/kernel/cmdline)"
-# U_BOOT_TIMEOUT="10"
-# U_BOOT_FDT="rockchip/${DEVICE_TREE_FILE}"
-# U_BOOT_FDT_DIR="/usr/lib/linux-image-"
-# U_BOOT_FDT_OVERLAYS_DIR="/usr/lib/linux-image-"
-# EOF
-# # Uboot env
-echo "rootwait rw console=ttyS9,115200 console=tty1 cgroup_enable=cpuset cgroup_memory=1 cgroup_enable=memory ${BOOT_ARGS}" > "${MOUNT_POINT}/etc/kernel/cmdline"
-
 mount --bind /dev "${MOUNT_POINT}/dev"
 mount --bind /dev/pts "${MOUNT_POINT}/dev/pts"
 mount  /proc "${MOUNT_POINT}/proc" -t proc
 mount --bind /sys "${MOUNT_POINT}/sys"
 
-# cat << EOF | chroot "${MOUNT_POINT}" /bin/bash
-# apt-get install -y sudo
-# adduser --disabled-password --gecos "" "\${USER}"
-# adduser "\${USER}" sudo
-# mkdir -p "/home/\${USER}/.ssh"
-# chown -R sabban:sabban "/home/\${USER}"
-# EOF
-
-# cat "${SSH_PUB_KEY_FILE}" > "${MOUNT_POINT}/home/${USER}/.ssh/authorized_keys"
-
-
 cat << EOF | chroot "${MOUNT_POINT}" /bin/bash
-apt-get install -y flash-kernel openssh-server cloud-init lvm2
-rm -f /etc/ssh/ssh_host_*
+apt-get install -y flash-kernel openssh-server cloud-init lvm2 sudo net-tools locales-all
 EOF
 
+cat << EOF | chroot "${MOUNT_POINT}" /bin/bash
+useradd -m -s /bin/bash admin
+echo "admin:admin" | chpasswd
+usermod -aG sudo admin
+EOF
+
+# add user and its ssh key
+cat << EOF | chroot "${MOUNT_POINT}" /bin/bash
+useradd -m -s /bin/bash "${USER}"
+usermod -aG sudo "${USER}"
+mkdir -p /home/"${USER}"/.ssh
+echo "${SSH_PUB_KEY}" > /home/"${USER}"/.ssh/authorized_keys
+EOF
+
+# configure boot
 cat << EOF >> "${MOUNT_POINT}/etc/flash-kernel/db"
 Machine: Turing Machines RK1
 Kernel-Flavors: any
@@ -201,6 +193,24 @@ bootargs=root=/dev/rk1/root rootfstype=ext4 rootwait rw console=ttyS9,115200 con
 fdtfile=rk3588-turing-rk1.dtb
 overlay_prefix=rk3588
 overlays=
+EOF
+
+# Configure network
+# Would have preferred to use cloud init but didn't work out for some reason
+cat > "${MOUNT_POINT}/etc/network/interfaces" << 'EOF'
+# This file describes the network interfaces available on your system
+# and how to activate them. For more information, see interfaces(5).
+
+source /etc/network/interfaces.d/*
+
+# The loopback network interface
+auto lo
+iface lo inet loopback
+
+# The primary network interface
+iface end0 inet dhcp
+# This is an autoconfigured IPv6 interface
+iface end0 inet6 auto
 EOF
 
 cat > "${MOUNT_POINT}/boot/boot/boot.cmd" << 'EOF'
@@ -246,8 +256,6 @@ mkimage -A arm64 -O linux -T script -C none -n "Boot Script" -d /boot/boot/boot.
 FK_IGNORE_EFI=yes update-initramfs  -c -k all
 EOF
 
-
-
 cat << EOF >> "${MOUNT_POINT}/etc/fstab"
 LABEL=root / ext4 errors=remount-ro 0 1
 LABEL=boot /boot/boot vfat defaults 0 2
@@ -256,61 +264,7 @@ LABEL=var /var ext4 defaults 0 2
 #LABEL=home /home ext4 defaults 0 2
 EOF
 
-cat << EOF >> "${MOUNT_POINT}/etc/cloud/cloud.cfg"
-network:
-  version: 2
-  renderer: networkd
-  ethernets:
-    eth0:
-      match:
-        name: "*"
-      dhcp4: true
-users:
-  - name: "${USER}"
-    groups: users,adm,dialout,audio,netdev,video,plugdev,cdrom,games,input,gpio,spi,i2c,render,sudo
-    shell: /bin/bash
-    lock_passwd: true
-    ssh_authorized_keys:
-      - "${SSH_PUB_KEY}"
-EOF
-
-# cat << EOF >> "${MOUNT_POINT}/usr/sbin/update-uuid"
-# #!/bin/bash
-
-# # Loop through all available disk partitions
-# for dev in $(ls /dev/mapper/*); do
-#     # Generate a new UUID
-#     new_uuid=$(uuidgen)
-
-#     # Apply the new UUID to the partition
-#     tune2fs -U ${new_uuid} ${dev}
-# done
-# EOF
-
-# cat << EOF | chroot "${MOUNT_POINT}" /bin/bash
-# chmod +x /usr/sbin/update-uuid
-# EOF
-
-# cat << EOF >> "${MOUNT_POINT}/etc/systemd/system/update-uuid.service"
-# [Unit]
-# Description=Change UUID of all disks
-# ConditionFirstBoot=yes
-
-# [Service]
-# Type=oneshot
-# ExecStart=/usr/sbin/update-uuid
-# RemainAfterExit=yes
-
-# [Install]
-# WantedBy=multi-user.target
-# EOF
-
-
-# cat << EOF | chroot "${MOUNT_POINT}" /bin/bash
-# sudo systemctl enable update-uuid.service
-# EOF
-
-
+cp nvme-install.sh "${MOUNT_POINT}/usr/bin/nvme-install.sh"
 
 umount "${MOUNT_POINT}/proc"
 umount "${MOUNT_POINT}/sys"
