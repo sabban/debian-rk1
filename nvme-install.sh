@@ -11,11 +11,11 @@ fi
 OLD_BOOT=$(mount | grep "on /boot/boot " | awk '{print $1}')
 OLD_DEVICE=$(mount | grep "on /boot/boot " | awk '{print $1}' | sed 's/p[0-9]*//g')
 
-dd if=/dev/zero of="${disk}" count=4096 bs=512 2> /dev/null
+dd if=/dev/zero of="${DEVICE}" count=4096 bs=512 2> /dev/null
 # Create a partition table on the target disk
 parted --script "${DEVICE}" \
     mklabel gpt \
-    mkpart primary fat32 16MiB 200MiB \
+    mkpart primary fat32 1MiB 200MiB \
     mkpart primary 200MiB 100%
 
 
@@ -32,15 +32,6 @@ rsync -axHAWX --numeric-ids --info=progress2 /boot/boot /mnt/target/boot
 umount /mnt/target/boot
 rm -rf /mnt/target/
 
-# install u-boot blob
-if [ -f "/usr/lib/u-boot/u-boot-rockchip.bin" ]; then
-    dd if="/usr/lib/u-boot/u-boot-rockchip.bin" of="${DEVICE}" seek=1 bs=32k conv=fsync
-else
-    echo "u-boot-rockchip.bin not found"
-    exit 1
-fi
-
-
 PV_TO_REMOVE=$(pvs --noheadings|grep -v $DEVICE|awk '{print $1}')
 pvcreate "${VOLUME}"
 vgextend rk1 "${VOLUME}"
@@ -48,10 +39,7 @@ pvmove "${PV_TO_REMOVE}"
 vgreduce rk1 "${PV_TO_REMOVE}"
 
 umount /boot/boot
-parted --script "${OLD_DEVICE}" rm 2
-parted --script "${OLD_DEVICE}" rm 1
-
-dd if=/dev/zero of="${OLD_DEVICE}" seek=1 bs=32k conv=fsync count=294
+blkdiscard "${OLD_DEVICE}"
 
 # Format and make file systems - adjust these as per your specific setup
 # Example: assuming the first partition is root (`/`) and formatted as ext4
@@ -62,3 +50,4 @@ dd if=/dev/zero of="${OLD_DEVICE}" seek=1 bs=32k conv=fsync count=294
 # Mount necessary directories and chroot into new environment
 
 echo "Migration from MMC disk to NVMe disk completed successfully!"
+echo "U-boot is still configured to boot from the MMC disk"

@@ -264,7 +264,6 @@ LABEL=boot / ext4 errors=remount-ro 0 1
 UUID="${BOOT_UUID}" /boot/boot vfat defaults 0 2
 UUID="${TMP_UUID}" /tmp ext4 defaults 0 2
 UUID="${VAR_UUID}" /var ext4 defaults 0 2
-#LABEL=home /home ext4 defaults 0 2
 EOF
 
 cp nvme-install.sh "${MOUNT_POINT}/usr/bin/nvme-install.sh"
