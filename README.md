@@ -15,3 +15,5 @@ Those can be build using scripts available at https://github.com/Joshua-Riek/ubu
 ## Usage
 
 sudo USER=user SSH_PUB_KEY_FILE=/home/user/.ssh/id_rsa.pub sh script.sh
+
+To move data to nvme, there's a script `/usr/bin/nvme-install.sh`

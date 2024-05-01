@@ -37,6 +37,7 @@ pvcreate "${VOLUME}"
 vgextend rk1 "${VOLUME}"
 pvmove "${PV_TO_REMOVE}"
 vgreduce rk1 "${PV_TO_REMOVE}"
+pvremove "${PV_TO_REMOVE}"
 
 umount /boot/boot
 blkdiscard "${OLD_DEVICE}"
