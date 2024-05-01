@@ -193,22 +193,6 @@ overlays=
 EOF
 
 # Configure network
-# Would have preferred to use cloud init but didn't work out for some reason
-cat > "${MOUNT_POINT}/etc/network/interfaces" << 'EOF'
-# This file describes the network interfaces available on your system
-# and how to activate them. For more information, see interfaces(5).
-
-source /etc/network/interfaces.d/*
-
-# The loopback network interface
-auto lo
-iface lo inet loopback
-
-# The primary network interface
-iface end0 inet dhcp
-# This is an autoconfigured IPv6 interface
-iface end0 inet6 auto
-EOF
 
 cat > "${MOUNT_POINT}/boot/boot/boot.cmd" << 'EOF'
 # This is a boot script for U-Boot
