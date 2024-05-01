@@ -11,6 +11,7 @@ fi
 OLD_BOOT=$(mount | grep "on /boot/boot " | awk '{print $1}')
 OLD_DEVICE=$(mount | grep "on /boot/boot " | awk '{print $1}' | sed 's/p[0-9]*//g')
 
+dd if=/dev/zero of="${disk}" count=4096 bs=512 2> /dev/null
 # Create a partition table on the target disk
 parted --script "${DEVICE}" \
     mklabel gpt \
@@ -25,10 +26,11 @@ VOLUME=$(fdisk -l "${DEVICE}" | grep "${DEVICE}" |  sed -n 3p | awk '{print $1}'
 # create the boot partition
 mkfs.vfat -F32 -n boot "${BOOT}"
 
-mkdir -p /mnt/target
+mkdir -p /mnt/target/boot
 mount "${BOOT}" /mnt/target/boot
 rsync -axHAWX --numeric-ids --info=progress2 /boot/boot /mnt/target/boot
-umount /mnt/target
+umount /mnt/target/boot
+rm -rf /mnt/target/
 
 # install u-boot blob
 if [ -f "/usr/lib/u-boot/u-boot-rockchip.bin" ]; then
@@ -45,10 +47,11 @@ vgextend rk1 "${VOLUME}"
 pvmove "${PV_TO_REMOVE}"
 vgreduce rk1 "${PV_TO_REMOVE}"
 
+umount /boot/boot
 parted --script "${OLD_DEVICE}" rm 2
 parted --script "${OLD_DEVICE}" rm 1
 
-dd if=/dev/zero of="${OLD_DEVICE}" seek=1 bs=32k conv=fsync
+dd if=/dev/zero of="${OLD_DEVICE}" seek=1 bs=32k conv=fsync count=294
 
 # Format and make file systems - adjust these as per your specific setup
 # Example: assuming the first partition is root (`/`) and formatted as ext4

@@ -147,7 +147,7 @@ mount --bind /sys "${MOUNT_POINT}/sys"
 
 # install packages in chroot
 cat << EOF | chroot "${MOUNT_POINT}" /bin/bash
-apt-get install -y flash-kernel openssh-server cloud-init lvm2 sudo net-tools locales
+apt-get install -y flash-kernel openssh-server cloud-init lvm2 sudo net-tools locales parted dosfstools rsync
 EOF
 
 # add user and its ssh key
@@ -156,8 +156,11 @@ useradd -m -s /bin/bash "${USER}"
 usermod -aG sudo "${USER}"
 mkdir -p /home/"${USER}"/.ssh
 echo "${SSH_PUB_KEY}" > /home/"${USER}"/.ssh/authorized_keys
-echo "${USER}" ALL=(ALL) NOPASSWD:ALL > /etc/sudoers.d/90-"${USER}"
+chown -R "${USER}":"${USER}" /home/"${USER}"/.ssh
 EOF
+
+echo "${USER}" ALL=\(ALL\) NOPASSWD:ALL > "${MOUNT_POINT}"/etc/sudoers.d/90-"${USER}"
+
 
 # configure boot
 cat << EOF >> "${MOUNT_POINT}/etc/flash-kernel/db"
@@ -177,9 +180,9 @@ Turing Machines RK1
 EOF
 
 cat <<EOF | chroot "${MOUNT_POINT}" /bin/bash
-cp /usr/lib/linux-image-5.10.160-rockchip/rockchip/rk3588-turing-rk1.dtb /boot/boot/
+cp /usr/lib/linux-image-*/rockchip/rk3588-turing-rk1.dtb /boot/boot/
 mkdir -p /boot/boot/overlays
-cp -a /usr/lib/linux-image-5.10.160-rockchip/rockchip/overlay/rk3588*.dtbo /boot/boot/overlays
+cp -a /usr/lib/linux-image-*/rockchip/overlay/rk3588*.dtbo /boot/boot/overlays
 EOF
 
 cat > "${MOUNT_POINT}/boot/boot/bootEnv.txt" << EOF
@@ -257,7 +260,7 @@ BOOT_UUID=$(blkid -s UUID -o value "${BOOT}")
 
 
 cat << EOF >> "${MOUNT_POINT}/etc/fstab"
-UUID="${ROOT_UUID}" / ext4 errors=remount-ro 0 1
+LABEL=boot / ext4 errors=remount-ro 0 1
 UUID="${BOOT_UUID}" /boot/boot vfat defaults 0 2
 UUID="${TMP_UUID}" /tmp ext4 defaults 0 2
 UUID="${VAR_UUID}" /var ext4 defaults 0 2
