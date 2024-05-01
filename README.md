@@ -8,8 +8,9 @@ To get a fully functional images one has to put debian image in the `packages` d
 * linux image package
 * linux header package
 * u-boot package
+* rockchip-firmware
 
-Those can be build using scripts available at https://github.com/Joshua-Riek/ubuntu-rockchip
+Those can be build using scripts available at https://github.com/Joshua-Riek/ubuntu-rockchip or its ppa.
 
 ## Usage
 
