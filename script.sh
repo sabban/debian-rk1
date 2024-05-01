@@ -54,8 +54,8 @@ dd if=/dev/zero of="${DISK_IMAGE}" bs=1M count=2000
 
 parted --script "${DISK_IMAGE}" \
     mklabel gpt \
-    mkpart primary fat32 16MiB 200MiB \
-    mkpart primary 200MiB 100%
+    mkpart primary fat32 16MiB 300MiB \
+    mkpart primary 300MiB 100%
 
 DEVICE=$(losetup -f)
 
@@ -73,9 +73,9 @@ mkfs.vfat -F32 -n boot "${BOOT}"
 
 pvcreate "${VOLUME}"
 vgcreate rk1 "${VOLUME}"  --config 'devices{ filter = [ "a/dev/loop.*/", "r/dev/mapper/.*/" ] }'
-lvcreate -L 1G -n root rk1
+lvcreate -L 900M -n root rk1
 lvcreate -L 100M -n tmp rk1
-lvcreate -L 350M -n var rk1
+lvcreate -L 400M -n var rk1
 #lvcreate -L 10M -n home rk1
 
 mkfs.ext4 -L root /dev/mapper/rk1-root
