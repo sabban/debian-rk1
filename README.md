@@ -17,3 +17,8 @@ Those can be build using scripts available at https://github.com/Joshua-Riek/ubu
 sudo USER=user SSH_PUB_KEY_FILE=/home/user/.ssh/id_rsa.pub sh script.sh
 
 To move data to nvme, there's a script `/usr/bin/nvme-install.sh`
+
+## TODO
+
+* Find the reason why cloud init sometimes find end0 and sometime end1
+* get rid of debian user 
