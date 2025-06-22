@@ -197,13 +197,19 @@ cp -a /usr/lib/linux-image-*/rockchip/overlay/rk3588*.dtbo /boot/boot/overlays
 EOF
 
 cat >"${MOUNT_POINT}/boot/boot/bootEnv.txt" <<EOF
-bootargs=root=/dev/rk1/root rootfstype=ext4 rootwait rw earlycon console=ttyS9,115200 console=ttyS2,1500000 console=tty1 cgroup_enable=cpuset cgroup_memory=1 cgroup_enable=memory swapaccount=1 systemd.unified_cgroup_hierarchy=1
+bootargs=root=/dev/rk1/root rootfstype=ext4 rootwait rw earlycon console=ttyS0,115200 console=tty1 cgroup_enable=cpuset cgroup_memory=1 cgroup_enable=memory swapaccount=1 systemd.unified_cgroup_hierarchy=1
 fdtfile=rk3588-turing-rk1.dtb
 overlay_prefix=rk3588
 overlays=
 EOF
 
 # Configure network
+(
+    echo "auto lo"
+    echo "iface lo inet loopback"
+    echo "auto end0"
+    echo "iface end0 inet dhcp"
+) >"${MOUNT_POINT}/etc/network/interfaces"
 
 cat >"${MOUNT_POINT}/boot/boot/boot.cmd" <<'EOF'
 # This is a boot script for U-Boot
