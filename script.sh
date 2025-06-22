@@ -22,6 +22,11 @@ if [ -z "${MOUNT_POINT}" ]; then
     fi
 fi
 
+if ! command -v realpath; then
+    echo "Please install realpath to be able to cleanup at the end the script"
+    exit 1
+fi
+
 # Create rootfs
 if [ ! -d "${CHROOT_DIR}" ]; then
     if uname -m | grep -q arm64; then
@@ -45,11 +50,6 @@ fi
 # Create disk image
 DISK_IMAGE="./disk-rk1.img"
 
-if  ! command -v realpath ; then
-    echo "Please install realpath to be able to cleanup at the end the script"
-    exit 1
-fi
-
 dd if=/dev/zero of="${DISK_IMAGE}" bs=1M count=2000
 
 parted --script "${DISK_IMAGE}" \
@@ -61,8 +61,8 @@ DEVICE=$(losetup -f)
 
 losetup "${DEVICE}" "${DISK_IMAGE}"
 
-BOOT=$(fdisk -l "${DEVICE}" | grep "${DEVICE}" |  sed -n 2p | awk '{print $1}')
-VOLUME=$(fdisk -l "${DEVICE}" | grep "${DEVICE}" |  sed -n 3p | awk '{print $1}')
+BOOT=$(fdisk -l "${DEVICE}" | grep "${DEVICE}" | sed -n 2p | awk '{print $1}')
+VOLUME=$(fdisk -l "${DEVICE}" | grep "${DEVICE}" | sed -n 3p | awk '{print $1}')
 
 echo "BOOT: ${BOOT}"
 echo "VOLUME: ${VOLUME}"
@@ -72,7 +72,7 @@ partprobe "${DEVICE}"
 mkfs.vfat -F32 -n boot "${BOOT}"
 
 pvcreate "${VOLUME}"
-vgcreate rk1 "${VOLUME}"  --config 'devices{ filter = [ "a/dev/loop.*/", "r/dev/mapper/.*/" ] }'
+vgcreate rk1 "${VOLUME}" --config 'devices{ filter = [ "a/dev/loop.*/", "r/dev/mapper/.*/" ] }'
 lvcreate -L 900M -n root rk1
 lvcreate -L 100M -n tmp rk1
 lvcreate -L 400M -n var rk1
@@ -101,9 +101,11 @@ mount /dev/mapper/rk1-var "${MOUNT_POINT}/var"
 
 rsync -apzq --delete "${CHROOT_DIR}/" "${MOUNT_POINT}/"
 cp -a packages/*.deb "${MOUNT_POINT}/root"
+mkdir -p "${MOUNT_POINT}/usr/lib/u-boot/"
+cp -a packages/u-boot/u-boot-rockchip.bin "${MOUNT_POINT}/usr/lib/u-boot/"
 
 # install packages in chroot
-cat << EOF | chroot "${MOUNT_POINT}" /bin/bash
+cat <<EOF | chroot "${MOUNT_POINT}" /bin/bash
 apt-get update
 apt-get install -y mtd-utils
 for package in /root/*.deb; do
@@ -111,8 +113,13 @@ for package in /root/*.deb; do
 done
 EOF
 
+cat <<EOF | chroot "${MOUNT_POINT}" /bin/bash
+apt-get update
+apt-get install -y u-boot-tools
+EOF
+
 #unlock root account
-cat << EOF | chroot "${MOUNT_POINT}" /bin/bash
+cat <<EOF | chroot "${MOUNT_POINT}" /bin/bash
 passwd -u root
 EOF
 
@@ -142,16 +149,16 @@ fi
 
 mount --bind /dev "${MOUNT_POINT}/dev"
 mount --bind /dev/pts "${MOUNT_POINT}/dev/pts"
-mount  /proc "${MOUNT_POINT}/proc" -t proc
+mount /proc "${MOUNT_POINT}/proc" -t proc
 mount --bind /sys "${MOUNT_POINT}/sys"
 
 # install packages in chroot
-cat << EOF | chroot "${MOUNT_POINT}" /bin/bash
-apt-get install -y flash-kernel openssh-server cloud-init lvm2 sudo net-tools locales parted dosfstools rsync
+cat <<EOF | chroot "${MOUNT_POINT}" /bin/bash
+apt-get install -y flash-kernel openssh-server lvm2 sudo net-tools locales parted dosfstools rsync
 EOF
 
 # add user and its ssh key
-cat << EOF | chroot "${MOUNT_POINT}" /bin/bash
+cat <<EOF | chroot "${MOUNT_POINT}" /bin/bash
 useradd -m -s /bin/bash "${USER}"
 usermod -aG sudo "${USER}"
 mkdir -p /home/"${USER}"/.ssh
@@ -159,11 +166,15 @@ echo "${SSH_PUB_KEY}" > /home/"${USER}"/.ssh/authorized_keys
 chown -R "${USER}":"${USER}" /home/"${USER}"/.ssh
 EOF
 
-echo "${USER}" ALL=\(ALL\) NOPASSWD:ALL > "${MOUNT_POINT}"/etc/sudoers.d/90-"${USER}"
+echo "${USER}" ALL=\(ALL\) NOPASSWD:ALL >"${MOUNT_POINT}"/etc/sudoers.d/90-"${USER}"
 
+ROOT_UUID=$(blkid -s UUID -o value /dev/mapper/rk1-root)
+TMP_UUID=$(blkid -s UUID -o value /dev/mapper/rk1-tmp)
+VAR_UUID=$(blkid -s UUID -o value /dev/mapper/rk1-var)
+BOOT_UUID=$(blkid -s UUID -o value "${BOOT}")
 
 # configure boot
-cat << EOF >> "${MOUNT_POINT}/etc/flash-kernel/db"
+cat <<EOF >>"${MOUNT_POINT}/etc/flash-kernel/db"
 Machine: Turing Machines RK1
 Kernel-Flavors: any
 Method: generic
@@ -171,11 +182,11 @@ Boot-Kernel-Path: /boot/boot/vmlinuz
 Boot-Initrd-Path: /boot/boot/initrd.img
 EOF
 
-cat <<EOF >> "${MOUNT_POINT}/etc/default/u-boot"
+cat <<EOF >>"${MOUNT_POINT}/etc/default/u-boot"
 U_BOOT_ROOT="root=/dev/mapper/rk1-root"
 EOF
 
-cat <<EOF >> "${MOUNT_POINT}/etc/flash-kernel/machine"
+cat <<EOF >>"${MOUNT_POINT}/etc/flash-kernel/machine"
 Turing Machines RK1
 EOF
 
@@ -185,8 +196,8 @@ mkdir -p /boot/boot/overlays
 cp -a /usr/lib/linux-image-*/rockchip/overlay/rk3588*.dtbo /boot/boot/overlays
 EOF
 
-cat > "${MOUNT_POINT}/boot/boot/bootEnv.txt" << EOF
-bootargs=root=/dev/rk1/root rootfstype=ext4 rootwait rw console=ttyS9,115200 console=ttyS2,1500000 console=tty1 cgroup_enable=cpuset cgroup_memory=1 cgroup_enable=memory swapaccount=1 systemd.unified_cgroup_hierarchy=0
+cat >"${MOUNT_POINT}/boot/boot/bootEnv.txt" <<EOF
+bootargs=root=/dev/rk1/root rootfstype=ext4 rootwait rw earlycon console=ttyS9,115200 console=ttyS2,1500000 console=tty1 cgroup_enable=cpuset cgroup_memory=1 cgroup_enable=memory swapaccount=1 systemd.unified_cgroup_hierarchy=1
 fdtfile=rk3588-turing-rk1.dtb
 overlay_prefix=rk3588
 overlays=
@@ -194,7 +205,7 @@ EOF
 
 # Configure network
 
-cat > "${MOUNT_POINT}/boot/boot/boot.cmd" << 'EOF'
+cat >"${MOUNT_POINT}/boot/boot/boot.cmd" <<'EOF'
 # This is a boot script for U-Boot
 #
 # Recompile with:
@@ -232,19 +243,13 @@ load ${devtype} ${devnum}:${distro_bootpart} ${ramdisk_addr_r} /initrd.img
 booti ${kernel_addr_r} ${ramdisk_addr_r}:${filesize} ${fdt_addr_r}
 EOF
 
-cat <<EOF |chroot "${MOUNT_POINT}"
+cat <<EOF | chroot "${MOUNT_POINT}"
 mkimage -A arm64 -O linux -T script -C none -n "Boot Script" -d /boot/boot/boot.cmd /boot/boot/boot.scr
 FK_IGNORE_EFI=yes update-initramfs  -c -k all
 EOF
 
-ROOT_UUID=$(blkid -s UUID -o value /dev/mapper/rk1-root)
-TMP_UUID=$(blkid -s UUID -o value /dev/mapper/rk1-tmp)
-VAR_UUID=$(blkid -s UUID -o value /dev/mapper/rk1-var)
-BOOT_UUID=$(blkid -s UUID -o value "${BOOT}")
-
-
-cat << EOF >> "${MOUNT_POINT}/etc/fstab"
-LABEL=boot / ext4 errors=remount-ro 0 1
+cat <<EOF >>"${MOUNT_POINT}/etc/fstab"
+UUID="${ROOT_UUID}" / ext4 errors=remount-ro 0 1
 UUID="${BOOT_UUID}" /boot/boot vfat defaults 0 2
 UUID="${TMP_UUID}" /tmp ext4 defaults 0 2
 UUID="${VAR_UUID}" /var ext4 defaults 0 2
